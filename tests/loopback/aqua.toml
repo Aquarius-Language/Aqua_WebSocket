@@ -1,0 +1,12 @@
+manifest_version = 1
+
+[project]
+name = "Aqua_WebSocket_Loopback"
+type = "executable"
+version = "1.0.0"
+entry = "main.aqua"
+sources = ["main.aqua"]
+platforms = ["windows", "linux"]
+
+[dependencies]
+Aqua_WebSocket = { path = "../..", version = "1.0.0" }

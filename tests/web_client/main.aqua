@@ -1,0 +1,14 @@
+# 用戶端測試（網頁／Android／桌面）：連到 ws://127.0.0.1:9101，送出並等待回音。
+# Client test for web/Android/desktop: connect, send, await the echo.
+變數 通訊 = 匯入("/bottles/Aqua_WebSocket/main.aqua");
+變數 回音 = [];
+變數 用戶端 = 通訊.ConnectWith("ws://127.0.0.1:9101/test", {"逾時": 5000});
+用戶端.OnMessage(函式(文字) { 陣列.追加(回音, 文字); });
+用戶端.OnBinary(函式(位元組) { 陣列.追加(回音, 位元組); });
+用戶端.Send("網頁你好 🎉");
+用戶端.SendBytes([9, 8, 7]);
+變數 開始 = 目前時間();
+迴圈 (變數 輪 = 0; 長度(回音) < 2 && 目前時間() - 開始 < 5000; 輪++) { 用戶端.Wait(20); }
+印出("平台", 通訊.Platform(), "回音", 回音, "狀態", 用戶端.State(), 用戶端.LastError);
+用戶端.Close();
+印出(如果 (長度(回音) == 2) { "WEBSOCKET_CLIENT_OK"; } 否則 { "WEBSOCKET_CLIENT_FAIL"; });

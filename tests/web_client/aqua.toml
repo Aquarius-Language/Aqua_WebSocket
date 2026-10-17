@@ -1,0 +1,12 @@
+manifest_version = 1
+
+[project]
+name = "Aqua_WebSocket_WebClient"
+type = "executable"
+version = "1.0.0"
+entry = "main.aqua"
+sources = ["main.aqua"]
+platforms = ["web", "android", "windows", "linux"]
+
+[dependencies]
+Aqua_WebSocket = { path = "../..", version = "1.0.0" }

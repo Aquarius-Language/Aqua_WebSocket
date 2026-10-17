@@ -1,0 +1,33 @@
+manifest_version = 1
+
+[project]
+name = "Aqua_WebSocket"
+type = "library"
+version = "1.0.0"
+entry = "main.aqua"
+sources = ["main.aqua", "src"]
+platforms = ["windows", "linux", "web", "android"]
+license = "MIT"
+description = "雙語跨平台 WebSocket：桌面伺服器與用戶端、Android 與網頁用戶端。Bilingual cross-platform WebSocket server and client."
+
+[[assets]]
+source = "native/windows/aquaws.dll"
+platforms = ["windows"]
+
+[[assets]]
+source = "native/linux/libaquaws.so"
+platforms = ["linux"]
+
+[[assets]]
+source = "native/web/aquaws.mjs"
+platforms = ["web"]
+
+[[assets]]
+source = "native/android/arm64-v8a/libaquaws.so"
+target = "native/android/arm64-v8a/libaquaws.so"
+platforms = ["android"]
+
+[[assets]]
+source = "native/android/x86_64/libaquaws.so"
+target = "native/android/x86_64/libaquaws.so"
+platforms = ["android"]
