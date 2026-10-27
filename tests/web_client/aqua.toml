@@ -9,4 +9,4 @@ sources = ["main.aqua"]
 platforms = ["web", "android", "windows", "linux"]
 
 [dependencies]
-Aqua_WebSocket = { path = "../..", version = "1.0.0" }
+Aqua_WebSocket = { path = "../..", version = "2.0.0" }

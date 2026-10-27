@@ -3,6 +3,9 @@
  * MIT License, Copyright (c) 2026 Temple Lin.
  */
 #include "aq_plat.h"
+#if defined(AQ_HOSTED_LIBC)
+#include <string.h>
+#endif
 
 /* =====================================================================
  *  Operating system bindings

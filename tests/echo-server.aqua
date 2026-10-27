@@ -1,0 +1,6 @@
+var ws=import("AquaWebSocket");
+var server=ws.CreateServer({"host":"127.0.0.1","port":9101,"path":"/test","protocols":["aqua-echo"]});
+server.OnMessage(function(id,text){server.Send(id,text);});
+server.OnBinary(function(id,bytes){server.SendBytes(id,bytes);});
+print("WS_SDK_ECHO_READY");
+server.Run(function(){return true;});

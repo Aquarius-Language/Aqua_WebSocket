@@ -1,6 +1,6 @@
 # 聊天室用戶端（桌面、網頁、Android）：連線後每兩秒說一句話，並印出收到的訊息。
 # Chat client (desktop, web, Android): says something every two seconds and prints messages.
-變數 通訊 = 匯入("/bottles/Aqua_WebSocket/main.aqua");
+變數 通訊 = 匯入("AquaWebSocket");
 變數 主機 = 通訊.頁面主機();
 如果 (主機 == "") { 主機 = "127.0.0.1"; }
 變數 用戶端 = 通訊.連接並設定("ws://" + 主機 + ":8081/", {"自動重連": 真});

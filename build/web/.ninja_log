@@ -1,0 +1,6 @@
+# ninja log v6
+54	112	8146996297717443	CMakeFiles/aqua_aquaws.dir/C_/OfficialProjects/AquariusLangTW/runtime/sdk/src/aqua_api_web.c.obj	98322c8758344767
+43	143	8146996297617185	CMakeFiles/aqua_aquaws.dir/src/web_support.c.obj	3af9e602670f90a
+25	161	8146996297439129	CMakeFiles/aqua_aquaws.dir/src/aq_json.c.obj	a2c2a224067b8842
+35	191	8146996297529488	CMakeFiles/aqua_aquaws.dir/src/web.c.obj	ff72dc5180e205f9
+191	458	8146996299092306	aquaws.wasm	48cfbb9267178d53

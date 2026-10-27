@@ -1,0 +1,17 @@
+{
+  "Format": 1,
+  "ManifestHash": "2226036c7982644656080cc0558288805edefd2e5396278cbfc95c58320203eb",
+  "Direct": {
+    "Aqua_WebSocket": "aqua_websocket/2.0.0"
+  },
+  "Packages": [
+    {
+      "Name": "Aqua_WebSocket",
+      "Version": "2.0.0",
+      "Hash": "423b42a19d78f013fca6c9df0c8fe5d41d445aef36766c259a32131e22c3b712",
+      "Source": "path:C:\\OfficialProjects\\Aqua_WebSocket\\aqua.toml",
+      "Dependencies": {},
+      "Key": "aqua_websocket/2.0.0"
+    }
+  ]
+}

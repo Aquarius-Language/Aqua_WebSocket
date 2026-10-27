@@ -1,11 +1,11 @@
 ##
-Aqua_WebSocket 1.0.0 — 星泉跨平台 WebSocket 函式庫 / Cross-platform WebSocket library.
+Aqua_WebSocket 2.0.0 — 星泉跨平台 WebSocket 函式庫 / Cross-platform WebSocket library.
 
 桌面（Windows／Linux）：伺服器＋用戶端；Android：用戶端（亦可在區域網路當伺服器）；網頁：瀏覽器用戶端。
 Desktop (Windows/Linux): server + client. Android: client (server also works on a LAN).
 Web: browser client.
 
-    變數 通訊 = 匯入("/bottles/Aqua_WebSocket/main.aqua");
+    變數 通訊 = 匯入("AquaWebSocket");
     變數 伺服器 = 通訊.建立伺服器({"連接埠": 8081});
     伺服器.當訊息(函式(連線, 文字) { 伺服器.廣播(文字); });
     伺服器.執行(函式() { 真; });
@@ -13,7 +13,7 @@ Web: browser client.
 所有公開函式皆提供繁體中文與英文名稱，兩者指向同一個函式。
 Every public function has a Traditional Chinese and an English name bound to the same closure.
 ##
-變數 動態 = 匯入("動態函式庫");
+變數 原生 = 匯入("AquaWebSocketNative");
 變數 序列化 = 匯入("序列化");
 變數 空 = [][0];
 變數 _目錄 = 目前工作目錄;
@@ -27,7 +27,7 @@ Every public function has a Traditional Chinese and an English name bound to the
 變數 _物件編號 = [];
 變數 _網路 = 空;
 
-變數 版本, Version = 函式() { "1.0.0"; };
+變數 版本, Version = 函式() { "2.0.0"; };
 
 # 讀取選項：同時接受英文與繁體中文鍵。 / Option lookup accepting English or Chinese keys.
 變數 選項值, OptionValue = 函式(選項, 英文鍵, 中文鍵, 預設值) {
@@ -40,17 +40,12 @@ Every public function has a Traditional Chinese and an English name bound to the
 };
 
 變數 _呼叫 = 函式(名稱, 請求) {
-    回傳 序列化.解析JSON(_函式庫.呼叫(名稱, 序列化.JSON序列化(請求)));
+    回傳 序列化.解析JSON(_函式庫.Command(名稱, 序列化.JSON序列化(請求)));
 };
 
 變數 載入, Load = 函式() {
     如果 (_函式庫 == 空) {
-        _函式庫 = 動態.載入({
-            "windows": _目錄 + "/native/windows/aquaws.dll",
-            "linux": _目錄 + "/native/linux/libaquaws.so",
-            "android": "libaquaws.so",
-            "web": _目錄 + "/native/web/aquaws.mjs"
-        });
+        _函式庫 = 原生;
         變數 資訊 = _呼叫("aqws_open", {});
         _情境 = 資訊["ctx"];
         _平台 = 資訊["platform"];
@@ -158,7 +153,7 @@ Every public function has a Traditional Chinese and an English name bound to the
 # Create a WebSocket server (desktop). See README for every option.
 變數 建立伺服器, CreateServer = 函式(選項) {
     載入();
-    變數 伺服器 = 匯入(_目錄 + "/src/server.aqua");
+    變數 伺服器 = 匯入("src/server.aqua");
     伺服器.設定自身(伺服器);
     伺服器.內部初始化(_核心, 選項);
     回傳 伺服器;
@@ -180,7 +175,7 @@ Every public function has a Traditional Chinese and an English name bound to the
 # 連到 WebSocket 伺服器。 / Connect to a WebSocket server.
 變數 連接並設定, ConnectWith = 函式(網址, 選項) {
     載入();
-    變數 用戶端 = 匯入(_目錄 + "/src/client.aqua");
+    變數 用戶端 = 匯入("src/client.aqua");
     用戶端.設定自身(用戶端);
     用戶端.內部初始化(_核心, 網址, 選項, _解析);
     回傳 用戶端;
@@ -199,7 +194,6 @@ Every public function has a Traditional Chinese and an English name bound to the
 變數 關閉全部, CloseAll = 函式() {
     如果 (_函式庫 == 空) { 回傳 假; }
     _呼叫("aqws_close_ctx", {"ctx": _情境});
-    _函式庫.釋放();
     _函式庫 = 空;
     _物件表 = {};
     _物件編號 = [];

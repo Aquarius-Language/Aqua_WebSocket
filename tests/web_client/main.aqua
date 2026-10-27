@@ -1,6 +1,6 @@
 # 用戶端測試（網頁／Android／桌面）：連到 ws://127.0.0.1:9101，送出並等待回音。
 # Client test for web/Android/desktop: connect, send, await the echo.
-變數 通訊 = 匯入("/bottles/Aqua_WebSocket/main.aqua");
+變數 通訊 = 匯入("AquaWebSocket");
 變數 回音 = [];
 變數 用戶端 = 通訊.ConnectWith("ws://127.0.0.1:9101/test", {"逾時": 5000});
 用戶端.OnMessage(函式(文字) { 陣列.追加(回音, 文字); });

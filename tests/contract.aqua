@@ -1,0 +1,20 @@
+var ws=import("AquaWebSocket");
+var expected="星泉"+字串.從字元碼(0)+"🌊";
+var text="";
+var bytes=[];
+var code=0;
+var reason="";
+var client=ws.ConnectWith("ws://127.0.0.1:9101/test",{"protocols":["aqua-echo"],"timeout":5000});
+client.OnMessage(function(value){text=value;});
+client.OnBinary(function(value){bytes=value;});
+client.OnClose(function(value,message){code=value;reason=message;});
+client.Send(expected);client.SendBytes([0,127,255]);
+var started=目前時間();
+for(var i=0;(text!=expected||len(bytes)!=3)&&目前時間()-started<5000;i++){client.Wait(10);}
+client.CloseWith(4000,"再見");
+for(var i=0;code==0&&目前時間()-started<8000;i++){client.Wait(10);}
+var ok=text==expected&&len(bytes)==3&&bytes[2]==255&&code==4000&&reason=="再見"&&len(ws.RandomHex(16))==32;
+print("WebSocket SDK contract",ok,text,bytes,code,reason);
+print("contract details",text==expected,len(text),len(expected),code==4000,reason=="再見",len(ws.RandomHex(16)));
+ws.CloseAll();
+if(ok){print("WEBSOCKET_SDK_CONTRACT_OK");}else{print("WEBSOCKET_SDK_CONTRACT_FAIL");}

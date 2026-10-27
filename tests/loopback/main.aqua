@@ -1,6 +1,6 @@
 # 桌面迴路測試：同一個程式內啟動伺服器並以兩個用戶端互傳訊息。
 # Desktop loopback test: one process runs a server and two clients.
-變數 通訊 = 匯入("/bottles/Aqua_WebSocket/main.aqua");
+變數 通訊 = 匯入("AquaWebSocket");
 變數 文 = 字串;
 變數 空 = [][0];
 印出("平台 / platform:", 通訊.平台(), "伺服器 / server:", 通訊.支援伺服器());

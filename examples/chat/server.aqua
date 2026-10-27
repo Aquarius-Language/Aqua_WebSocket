@@ -1,7 +1,7 @@
 # 聊天室伺服器（桌面）：把每則訊息廣播給所有人。 / Chat server (desktop): broadcasts every message.
 #   aqua run chat.wasm                  （伺服器 / server）
 #   aqua run chat.wasm --entry client.aqua   （用戶端 / client，可開多個 / start several）
-變數 通訊 = 匯入("/bottles/Aqua_WebSocket/main.aqua");
+變數 通訊 = 匯入("AquaWebSocket");
 變數 伺服器 = 通訊.建立伺服器({"連接埠": 8081, "主機": "0.0.0.0"});
 印出("聊天室伺服器 / chat server: ws://localhost:" + 字串.轉文字(伺服器.連接埠) + "/");
 伺服器.當連線(函式(連線, 資訊) {

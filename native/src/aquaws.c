@@ -1,8 +1,8 @@
 /*
  * aquaws.c - Aqua_WebSocket native engine (RFC 6455 client and server).
  *
- * Exposed through the Aquarius DynamicLibrary buffer ABI version 1. Every
- * export takes a UTF-8 JSON request and writes a UTF-8 JSON response. The
+ * Registered through the Aquarius native SDK. Internal engine commands
+ * take JSON requests and responses; their buffers are private. The
  * engine has no threads: aqws_poll() performs all non-blocking socket work
  * for one context and returns queued events.
  *
@@ -10,8 +10,9 @@
  */
 #include "aq_plat.h"
 #include "aq_json.h"
+#include <aqua/aqua.h>
 
-#define AQWS_VERSION "1.0.0"
+#define AQWS_VERSION "2.0.0"
 #define WS_GUID "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 #define MAX_HEADER_BYTES 16384
 #define DEFAULT_MAX_MESSAGE (512 * 1024)
@@ -237,9 +238,8 @@ static void process_frames(ws_conn *c) {
                 c->close_received = 1;
                 if (!c->close_code || !c->close_sent) { c->close_code = code; aq_free(c->close_reason); c->close_reason = aq_strdup(reason); }
                 if (!c->close_sent) {
-                    uint8_t echo[2] = { (uint8_t)(code >> 8), (uint8_t)code };
-                    send_frame(c, 0x8, echo, code == 1005 ? 0 : 2);
-                    c->close_sent = 1;
+                    if (code == 1005) { send_frame(c, 0x8, NULL, 0); c->close_sent = 1; }
+                    else start_close(c, code, reason);
                 }
                 c->state = ST_CLOSING;
                 c->close_deadline = aq_now_ms() + (c->is_client ? 2000 : 200);
@@ -884,21 +884,25 @@ static int h_random(aj *req, aq_buf *res, uint8_t *out, int cap) {
     return 0;
 }
 
-/* ---------------- exports ---------------- */
-AQ_EXPORT int32_t aqua_library_abi(void) { return 1; }
-#define EXPORT_HANDLER(name, fn) \
-    AQ_EXPORT int32_t name(const uint8_t *in, int32_t inlen, uint8_t *out, int32_t cap) { return run(in, inlen, out, cap, fn); }
-EXPORT_HANDLER(aqws_open, h_open)
-EXPORT_HANDLER(aqws_close_ctx, h_close_ctx)
-EXPORT_HANDLER(aqws_listen, h_listen)
-EXPORT_HANDLER(aqws_connect, h_connect)
-EXPORT_HANDLER(aqws_send, h_send)
-EXPORT_HANDLER(aqws_broadcast, h_broadcast)
-EXPORT_HANDLER(aqws_close, h_close)
-EXPORT_HANDLER(aqws_close_server, h_close_server)
-EXPORT_HANDLER(aqws_poll, h_poll)
-EXPORT_HANDLER(aqws_info, h_info)
-EXPORT_HANDLER(aqws_random, h_random)
+/* The SDK owns all public values; engine buffers remain private. */
+static void command(aqua_call *call) {
+    aqua_str name = aqua_arg_str(call, 0), input = aqua_arg_str(call, 1);
+    handler_fn handler = NULL;
+#define WS_COMMAND(name_, handler_) if (aq_strcmp(name.data, #name_) == 0) handler = handler_;
+#include "commands.def"
+#undef WS_COMMAND
+    if (!handler || input.length > INT32_MAX) { aqua_fail(call, "Invalid WebSocket command"); return; }
+    uint8_t *output = aqua_alloc(1024 * 1024);
+    if (!output) { aqua_fail(call, "Out of memory"); return; }
+    int length = run((const uint8_t *)input.data, (int)input.length, output, 1024 * 1024, handler);
+    if (length < 0) aqua_fail(call, "WebSocket command failed (%d)", length);
+    else aqua_return_text(call, (const char *)output, (size_t)length);
+    aqua_free(output);
+}
+AQUA_LIBRARY(aquaws) {
+    aqua_class *module = aqua_define_module(library, "AquaWebSocketNative|網頁通訊端原生");
+    aqua_define_function(module, "Command|命令", command, "ss");
+}
 
 #if defined(AQ_WINDOWS) && !defined(AQ_HOSTED_LIBC)
 int __stdcall _DllMainCRTStartup(void *inst, unsigned long reason, void *reserved);
