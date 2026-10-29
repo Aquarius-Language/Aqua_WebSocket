@@ -1,0 +1,39 @@
+# 3.0 的新功能（桌面、Android）：非同步執行、連接非同步、房間、掛載到「網路」伺服器、子協定。
+# New in 3.0 (desktop, Android): RunAsync, ConnectAsync, rooms, Mount on a Network server, subprotocols.
+var ws = import("AquaWebSocket");
+var net = import("Network");
+var log = [];
+var note = function(text) { 陣列.追加(log, text); };
+
+# 一個網路伺服器同時提供 HTTP 與 WebSocket。 / One Network server for HTTP and WebSocket.
+var http = net.Listen("127.0.0.1:0");
+http.Handle("GET /hello", function(request, writer) { writer.Text("hello over HTTP"); });
+var server = ws.Mount(http, "/rooms", {"protocols": ["rooms.v1"]});
+server.OnOpen(function(conn, info) { server.Join(conn, info["query"]); });
+server.OnMessage(function(conn, text) { server.BroadcastToExcept(server.ConnectionInfo(conn)["query"], text, conn); });
+var serving = http.ServeAsync();
+var running = server.RunAsync();
+
+var base = "ws" + 字串.切片(http.Address, 4, 長度(http.Address)) + "/rooms?";
+var a = await ws.ConnectAsync(base + "red", {"protocols": ["rooms.v1"]});
+var b = await ws.ConnectAsync(base + "red", {"protocols": ["rooms.v1"]});
+var c = await ws.ConnectAsync(base + "blue", {"protocols": ["rooms.v1"]});
+b.OnMessage(function(text) { note("b got " + text); });
+c.OnMessage(function(text) { note("c got " + text); });
+a.Send("hi red room");
+for (var i = 0; i < 100 && 長度(log) == 0; i++) { await 承諾.延遲(10); }
+await 承諾.延遲(50);
+print("rooms", log, server.RoomMembers("red") == [1, 2] || 長度(server.RoomMembers("red")) == 2, 長度(server.RoomMembers("blue")));
+print("protocol", a.Protocol(), server.ConnectionCount());
+print("http", (await net.GetAsync(字串.取代(http.Address, "ws:", "http:") + "/hello", null)).Body);
+
+var failed = await ws.ConnectAsync("ws://127.0.0.1:1/none", {"timeout": 2000}).Catch(function(reason) { return "rejected"; });
+print("connect failure", failed);
+
+a.Close(); b.Close(); c.Close();
+for (var i = 0; i < 100 && server.ConnectionCount() > 0; i++) { await 承諾.延遲(10); }
+print("closed", server.ConnectionCount(), 長度(server.Rooms()));
+server.Close();
+await running;
+http.Close();
+print(if (長度(log) == 1 && log[0] == "b got hi red room") { "WEBSOCKET_FEATURES_OK"; } else { "WEBSOCKET_FEATURES_FAIL"; });

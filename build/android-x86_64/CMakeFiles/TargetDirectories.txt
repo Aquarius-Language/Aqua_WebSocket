@@ -1,3 +1,0 @@
-C:/OfficialProjects/Aqua_WebSocket/build/android-x86_64/CMakeFiles/aqua_aquaws.dir
-C:/OfficialProjects/Aqua_WebSocket/build/android-x86_64/CMakeFiles/edit_cache.dir
-C:/OfficialProjects/Aqua_WebSocket/build/android-x86_64/CMakeFiles/rebuild_cache.dir

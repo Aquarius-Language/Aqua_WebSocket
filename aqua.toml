@@ -1,13 +1,10 @@
 manifest_version = 2
 [library]
 name = "Aqua_WebSocket"
-version = "2.0.0"
+version = "3.0.0"
+description = "星泉 WebSocket：伺服器、用戶端、房間、自動重連與 wss，以預設「網路」函式庫為引擎。WebSocket servers, clients, rooms, reconnects and wss on AquariusLang's Network library."
 platforms = ["windows", "linux", "web", "android"]
 license = "MIT"
-[native]
-name = "aquaws"
-modules = ["AquaWebSocketNative|網頁通訊端原生"]
-source = "native"
 [[modules]]
 names = "AquaWebSocket|星泉網頁通訊端"
 source = "main.aqua"

@@ -1,24 +1,28 @@
 ##
-Aqua_WebSocket 用戶端物件（每次連線都會匯入一份獨立實例）。
-Client object template: every Connect call imports an independent instance.
-支援自動重新連線與連線中的訊息佇列。 / Supports auto-reconnect and queueing while connecting.
+Aqua_WebSocket 用戶端物件（每次連線都會匯入一份獨立實例）。一個非同步工作負責連線、接收與自動重新連線，
+把事件交給核心（輪詢或立即分派）；連線中送出的訊息會排隊。
+Client object template: every Connect call imports an independent instance. One async task connects, receives and
+reconnects, handing events to the core; messages sent while connecting are queued.
 ##
 變數 空 = [][0];
 變數 序列化 = 匯入("序列化");
 變數 _核心 = 空;
+變數 _網路 = 空;
 變數 _自身 = 空;
-變數 _解析 = 空;
 變數 _網址 = "";
 變數 _選項 = {};
-變數 _位址 = "";
-變數 _連線 = 0;
+變數 _編號 = 0;
+變數 _通訊端 = 空;
 變數 _狀態 = "closed";
 變數 _使用者關閉 = 假;
 變數 _自動重連 = 假;
 變數 _重連間隔 = 2000;
-變數 _下次重連 = -1;
 變數 _佇列中 = 真;
 變數 _待送 = [];
+變數 _立即 = 假;
+變數 _結束承諾 = 空;
+變數 _開啟完成 = 空;
+變數 _開啟拒絕 = 空;
 變數 _當開啟 = 空;
 變數 _當訊息 = 空;
 變數 _當JSON = 空;
@@ -26,6 +30,9 @@ Client object template: every Connect call imports an independent instance.
 變數 _當關閉 = 空;
 變數 _當錯誤 = 空;
 變數 _事件佇列 = [];
+變數 _工作 = 空;
+變數 _關閉代碼 = 1000;
+變數 _關閉原因 = "";
 變數 重連次數 = 0;
 變數 ReconnectCount = 0;
 變數 最後錯誤 = "";
@@ -33,51 +40,70 @@ Client object template: every Connect call imports an independent instance.
 
 變數 設定自身 = 函式(模組) { _自身 = 模組; };
 
-變數 _記錄錯誤 = 函式(訊息) {
-    最後錯誤 = 訊息; LastError = 訊息;
-    如果 (_當錯誤 != 空) { _當錯誤(訊息); }
-    否則 { 陣列.追加(_事件佇列, {"type": "error", "類型": "錯誤", "message": 訊息, "訊息": 訊息}); }
+變數 _推入 = 函式(事件) {
+    事件["conn"] = _編號;
+    事件["server"] = 0;
+    _核心["推入"](事件);
 };
 
-變數 _開始連線 = 函式() {
+# 網路函式庫的連線選項。 / The Network library's connection options.
+變數 _連線選項 = 函式() {
     變數 值 = _核心["選項值"];
-    變數 請求 = {
-        "url": _網址,
-        "protocols": 值(_選項, "protocols", "子協定", []),
-        "origin": 值(_選項, "origin", "來源", ""),
-        "headers": 值(_選項, "headers", "標頭", {}),
+    變數 設定 = {
         "timeout": 值(_選項, "timeout", "逾時", 10000),
-        "maxMessage": 值(_選項, "maxMessage", "訊息上限", 524288),
-        "pingInterval": 值(_選項, "pingInterval", "心跳間隔", 25000)
+        "maxBodyBytes": 值(_選項, "maxMessage", "訊息上限", 524288)
     };
-    如果 (_位址 != "") { 請求["address"] = _位址; }
-    變數 結果 = _核心["呼叫"]("aqws_connect", 請求);
-    如果 (結果["needsResolve"] == 真) {
-        # 原生引擎不含 DNS：用星泉網路函式庫解析後重試。 / Resolve with the Network library, then retry.
-        _位址 = _解析(結果["host"]);
-        如果 (_位址 == 空) { _位址 = ""; _記錄錯誤("無法解析主機 / cannot resolve host"); _狀態 = "closed"; 回傳 假; }
-        請求["address"] = _位址;
-        結果 = _核心["呼叫"]("aqws_connect", 請求);
-    }
-    如果 (結果["error"] != 空) {
-        _記錄錯誤(結果["error"]);
-        _狀態 = "closed";
-        如果 (_自動重連 && !_使用者關閉) { _下次重連 = 目前時間() + _重連間隔; }
-        回傳 假;
-    }
-    _連線 = 結果["conn"];
-    _狀態 = "connecting";
-    _核心["註冊"](_連線, _自身);
-    回傳 真;
+    變數 子協定 = 值(_選項, "protocols", "子協定", []);
+    如果 (長度(子協定) > 0) { 設定["protocols"] = 子協定; }
+    變數 標頭 = 雜湊.克隆(值(_選項, "headers", "標頭", {}));
+    變數 來源 = 值(_選項, "origin", "來源", "");
+    如果 (來源 != "") { 標頭["Origin"] = 來源; }
+    # 瀏覽器不能設定交握標頭。 / Browsers cannot set handshake headers.
+    如果 (長度(標頭) > 0 && !是網頁()) { 設定["headers"] = 標頭; }
+    回傳 設定;
 };
 
-變數 內部初始化 = 函式(核心, 網址, 選項, 解析函式) {
-    _核心 = 核心; _網址 = 網址; _選項 = 選項; _解析 = 解析函式;
+# 連線、接收、（選擇性）重新連線，直到使用者關閉。 / Connect, receive and (optionally) reconnect until closed.
+變數 _泵 = 非同步 函式() {
+    迴圈 (; !_使用者關閉;) {
+        _狀態 = "connecting";
+        變數 結果 = 等待 _網路.非同步連接網頁通訊端(_網址, _連線選項()).然後(
+            函式(通訊端) { 回傳 {"ok": 真, "socket": 通訊端}; },
+            函式(原因) { 回傳 {"ok": 假, "reason": 原因}; });
+        如果 (結果["ok"]) {
+            _通訊端 = 結果["socket"];
+            _推入({"type": "open", "protocol": _通訊端.子協定});
+            迴圈 (;;) {
+                變數 訊息 = 等待 _通訊端.非同步接收().捕捉(函式(原因) { 回傳 空; });
+                # 自己關閉時回報自己送出的代碼與原因。 / A close of our own reports the code and reason we sent.
+                如果 (訊息 == 空 && _使用者關閉) { _推入({"type": "close", "code": _關閉代碼, "reason": _關閉原因}); 中斷; }
+                如果 (訊息 == 空) { _推入({"type": "close", "code": 1006, "reason": ""}); 中斷; }
+                如果 (訊息.已關閉) { _推入({"type": "close", "code": 訊息.關閉代碼, "reason": 訊息.關閉原因}); 中斷; }
+                如果 (訊息.是文字) { _推入({"type": "message", "text": 訊息.文字}); }
+                否則 { _推入({"type": "binary", "bytes": 訊息.資料}); }
+            }
+            _通訊端 = 空;
+        } 否則 {
+            _推入({"type": "error", "message": 結果["reason"]});
+            如果 (_開啟拒絕 != 空) { 變數 拒絕 = _開啟拒絕; _開啟完成 = 空; _開啟拒絕 = 空; 拒絕(結果["reason"]); }
+        }
+        如果 (!_自動重連 || _使用者關閉) { 中斷; }
+        等待 承諾.延遲(_重連間隔);
+        如果 (!_使用者關閉) { 重連次數++; ReconnectCount = 重連次數; }
+    }
+    _狀態 = "closed";
+    回傳 空;
+};
+
+變數 內部初始化 = 函式(核心, 網址, 選項) {
+    _核心 = 核心; _網路 = 核心["網路"]; _網址 = 網址; _選項 = 選項;
     變數 值 = 核心["選項值"];
     _自動重連 = 值(選項, "autoReconnect", "自動重連", 假);
     _重連間隔 = 值(選項, "reconnectDelay", "重連間隔", 2000);
     _佇列中 = 值(選項, "queueWhileConnecting", "連線中佇列", 真);
-    _開始連線();
+    _編號 = 核心["新編號"]();
+    核心["註冊"](_編號, _自身);
+    _工作 = _泵();
     回傳 真;
 };
 
@@ -89,6 +115,18 @@ Client object template: every Connect call imports an independent instance.
 變數 當關閉, OnClose = 函式(回呼) { _當關閉 = 回呼; };
 變數 當錯誤, OnError = 函式(回呼) { _當錯誤 = 回呼; };
 
+變數 內部立即 = 函式() { _立即; };
+變數 內部開啟承諾 = 函式() {
+    如果 (_狀態 == "open") { 回傳 承諾.解決(_自身); }
+    回傳 承諾.建立(函式(完成, 拒絕) { _開啟完成 = 完成; _開啟拒絕 = 拒絕; });
+};
+
+變數 _傳 = 函式(項目) {
+    如果 (_通訊端 == 空) { 回傳 假; }
+    變數 通訊端 = _通訊端;
+    回傳 _網路.嘗試(函式() { 如果 (項目["bytes"] == 空) { 通訊端.傳送文字(項目["text"]); } 否則 { 通訊端.傳送位元組(項目["bytes"]); } }).成功;
+};
+
 變數 內部接收事件 = 函式(事件) {
     變數 類型 = 事件["type"];
     變數 已處理 = 假;
@@ -97,60 +135,47 @@ Client object template: every Connect call imports an independent instance.
         # 送出連線期間排隊的訊息。 / Flush messages queued while connecting.
         變數 待送 = _待送;
         _待送 = [];
-        迴圈 (變數 索引 = 0; 索引 < 長度(待送); 索引++) {
-            變數 項目 = 待送[索引];
-            項目["conn"] = _連線;
-            _核心["呼叫"]("aqws_send", 項目);
-        }
+        迴圈 (變數 索引 = 0; 索引 < 長度(待送); 索引++) { _傳(待送[索引]); }
         如果 (_當開啟 != 空) { _當開啟(); 已處理 = 真; }
+        如果 (_開啟完成 != 空) { 變數 完成 = _開啟完成; _開啟完成 = 空; _開啟拒絕 = 空; 完成(_自身); }
     } 否則如果 (類型 == "message") {
         如果 (_當訊息 != 空) { _當訊息(事件["text"]); 已處理 = 真; }
         如果 (_當JSON != 空) { _當JSON(序列化.解析JSON(事件["text"])); 已處理 = 真; }
     } 否則如果 (類型 == "binary") {
         如果 (_當二進位 != 空) { _當二進位(事件["bytes"]); 已處理 = 真; }
     } 否則如果 (類型 == "close") {
-        _核心["取消註冊"](_連線);
         _狀態 = "closed";
-        如果 (_自動重連 && !_使用者關閉) { _下次重連 = 目前時間() + _重連間隔; }
         如果 (_當關閉 != 空) { _當關閉(事件["code"], 事件["reason"]); 已處理 = 真; }
+        如果 (_使用者關閉 && _結束承諾 != 空) { 變數 結束 = _結束承諾; _結束承諾 = 空; 結束(真); }
     } 否則如果 (類型 == "error") {
         最後錯誤 = 事件["message"]; LastError = 最後錯誤;
         如果 (_當錯誤 != 空) { _當錯誤(事件["message"]); 已處理 = 真; }
     }
-    如果 (!已處理) {
+    如果 (!已處理 && !_立即) {
         如果 (長度(_事件佇列) < 10000) { 陣列.追加(_事件佇列, 事件); }
     }
 };
 
-變數 內部計時 = 函式() {
-    如果 (_下次重連 >= 0) {
-        如果 (目前時間() >= _下次重連) {
-            _下次重連 = -1;
-            重連次數++; ReconnectCount = 重連次數;
-            _開始連線();
-        }
-    }
-    回傳 真;
-};
+變數 內部計時 = 函式() { 真; };
 
 # 輪詢：處理網路事件，回傳未被回呼處理的事件。 / Poll and return unhandled events.
 變數 等待, Wait = 函式(毫秒) {
     _核心["輪詢全部"](毫秒);
-    # 尚未註冊（等待重連）時仍需推進計時器。 / Advance timers while waiting to reconnect.
-    如果 (_狀態 == "closed") { 內部計時(); }
     變數 結果 = _事件佇列;
     _事件佇列 = [];
     回傳 結果;
 };
 變數 輪詢, Poll = 函式() { 等待(0); };
 
-# ---- 傳送 / Sending ----
-變數 傳送, Send = 函式(文字) {
-    如果 (_狀態 == "open") {
-        回傳 _核心["呼叫"]("aqws_send", {"conn": _連線, "text": 文字})["sent"] > 0;
-    }
-    回傳 _排隊({"text": 文字});
+# 非同步執行：回呼在事件到達時立即執行；承諾在 關閉() 後完成。
+# RunAsync: callbacks run as events arrive; the promise settles after Close().
+變數 非同步執行, RunAsync = 函式() {
+    _立即 = 真;
+    _核心["輪詢全部"](0);
+    回傳 承諾.建立(函式(完成, 拒絕) { _結束承諾 = 完成; });
 };
+
+# ---- 傳送 / Sending ----
 # 連線中先排隊，開啟後依序送出。 / Queue while connecting; flushed in order on open.
 變數 _排隊 = 函式(項目) {
     如果 (_佇列中 && !_使用者關閉) {
@@ -158,23 +183,35 @@ Client object template: every Connect call imports an independent instance.
     }
     回傳 假;
 };
+變數 傳送, Send = 函式(文字) {
+    如果 (_狀態 == "open") { 回傳 _傳({"text": 文字}); }
+    回傳 _排隊({"text": 文字});
+};
 變數 傳送JSON, SendJSON = 函式(值) { 傳送(序列化.JSON序列化(值)); };
 變數 傳送位元組, SendBytes = 函式(位元組) {
-    如果 (_狀態 != "open") { 回傳 _排隊({"bytes": 位元組}); }
-    回傳 _核心["呼叫"]("aqws_send", {"conn": _連線, "bytes": 位元組})["sent"] > 0;
+    如果 (_狀態 == "open") { 回傳 _傳({"bytes": 位元組}); }
+    回傳 _排隊({"bytes": 位元組});
 };
 
 # ---- 狀態 / State ----
 變數 狀態, State = 函式() { _狀態; };
 變數 已連線, IsOpen = 函式() { _狀態 == "open"; };
 變數 網址, Url = 函式() { _網址; };
-變數 連線編號, ConnectionId = 函式() { _連線; };
+變數 連線編號, ConnectionId = 函式() { _編號; };
+# 伺服器選定的子協定（未選定為空字串）。 / The subprotocol the server chose ("" for none).
+變數 子協定, Protocol = 函式() { 如果 (_通訊端 == 空) { 回傳 ""; } 回傳 _通訊端.子協定; };
 
 變數 關閉並說明, CloseWith = 函式(代碼, 原因) {
+    變數 已開啟 = _通訊端 != 空;
     _使用者關閉 = 真;
-    _下次重連 = -1;
-    如果 (_狀態 == "closed") { 回傳 假; }
-    _核心["呼叫"]("aqws_close", {"conn": _連線, "code": 代碼, "reason": 原因});
+    如果 (!已開啟) {
+        _狀態 = "closed";
+        如果 (_結束承諾 != 空) { 變數 結束 = _結束承諾; _結束承諾 = 空; 結束(真); }
+        回傳 假;
+    }
+    _關閉代碼 = 代碼; _關閉原因 = 原因;
+    變數 通訊端 = _通訊端;
+    _網路.嘗試(函式() { 通訊端.關閉(代碼, 原因); });
     回傳 真;
 };
 變數 關閉, Close = 函式() { 關閉並說明(1000, ""); };

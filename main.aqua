@@ -1,33 +1,35 @@
 ##
-Aqua_WebSocket 2.0.0 — 星泉跨平台 WebSocket 函式庫 / Cross-platform WebSocket library.
+Aqua_WebSocket 3.0.0 — 星泉跨平台 WebSocket 函式庫 / Cross-platform WebSocket library.
 
-桌面（Windows／Linux）：伺服器＋用戶端；Android：用戶端（亦可在區域網路當伺服器）；網頁：瀏覽器用戶端。
-Desktop (Windows/Linux): server + client. Android: client (server also works on a LAN).
-Web: browser client.
+以星泉預設的「網路」函式庫為引擎（RFC 6455 訊框、分段、ping/pong、關閉交握、子協定、wss），本身只用星泉撰寫。
+Built on AquariusLang's default Network library (RFC 6455 framing, fragmentation, ping/pong, the closing handshake,
+subprotocols, wss); this library is written in AquariusLang only.
+
+桌面與 Android：伺服器＋用戶端（含 wss/https 憑證）；網頁：瀏覽器用戶端。
+Desktop and Android: server + client (wss with a certificate); web: browser client.
 
     變數 通訊 = 匯入("AquaWebSocket");
     變數 伺服器 = 通訊.建立伺服器({"連接埠": 8081});
     伺服器.當訊息(函式(連線, 文字) { 伺服器.廣播(文字); });
     伺服器.執行(函式() { 真; });
 
+兩種使用方式 / Two styles:
+- 輪詢 / polling: 等待(毫秒)、輪詢()、執行(每輪) 在呼叫期間分派回呼（與 2.x 相同）。
+  Wait(ms), Poll() and Run(tick) dispatch callbacks during the call (as in 2.x).
+- 非同步 / async: 非同步執行() / RunAsync() 讓回呼在事件到達時立即執行；連接非同步() / ConnectAsync() 等待連線開啟。
+  RunAsync() dispatches callbacks as events arrive; ConnectAsync() waits for the connection to open.
+
 所有公開函式皆提供繁體中文與英文名稱，兩者指向同一個函式。
 Every public function has a Traditional Chinese and an English name bound to the same closure.
 ##
-變數 原生 = 匯入("AquaWebSocketNative");
-變數 序列化 = 匯入("序列化");
+變數 網路 = 匯入("網路");
 變數 空 = [][0];
-變數 _目錄 = 目前工作目錄;
-變數 _函式庫 = 空;
-變數 _情境 = 0;
-變數 _平台 = "";
-變數 _可當伺服器 = 假;
-變數 _引擎版本 = "";
-變數 _頁面 = 空;
 變數 _物件表 = {};
 變數 _物件編號 = [];
-變數 _網路 = 空;
+變數 _下個編號 = 1;
+變數 _事件 = [];
 
-變數 版本, Version = 函式() { "2.0.0"; };
+變數 版本, Version = 函式() { "3.0.0"; };
 
 # 讀取選項：同時接受英文與繁體中文鍵。 / Option lookup accepting English or Chinese keys.
 變數 選項值, OptionValue = 函式(選項, 英文鍵, 中文鍵, 預設值) {
@@ -39,46 +41,30 @@ Every public function has a Traditional Chinese and an English name bound to the
     回傳 預設值;
 };
 
-變數 _呼叫 = 函式(名稱, 請求) {
-    回傳 序列化.解析JSON(_函式庫.Command(名稱, 序列化.JSON序列化(請求)));
-};
+# 2.x 載入原生引擎；3.0 不需要，保留以相容。 / 2.x loaded a native engine; kept for compatibility.
+變數 載入, Load = 函式() { 真; };
 
-變數 載入, Load = 函式() {
-    如果 (_函式庫 == 空) {
-        _函式庫 = 原生;
-        變數 資訊 = _呼叫("aqws_open", {});
-        _情境 = 資訊["ctx"];
-        _平台 = 資訊["platform"];
-        _可當伺服器 = 資訊["server"];
-        _引擎版本 = 資訊["version"];
-        _頁面 = 資訊["page"];
-    }
-    回傳 真;
-};
+變數 平台, Platform = 函式() { 網路.平台; };
+變數 支援伺服器, SupportsServer = 函式() { 網路.支援("http-server"); };
+變數 引擎版本, EngineVersion = 函式() { "AquariusLang Network " + 字串.轉文字(網路.契約版本); };
 
-變數 平台, Platform = 函式() { 載入(); _平台; };
-變數 支援伺服器, SupportsServer = 函式() { 載入(); _可當伺服器; };
-變數 引擎版本, EngineVersion = 函式() { 載入(); _引擎版本; };
 # 網頁：載入此程式的網頁主機名稱（例如伺服器的 IP）；其他平台回傳空字串。
 # Web: host name of the page that loaded the app (e.g. the server's IP); "" elsewhere.
 變數 頁面主機, PageHost = 函式() {
-    載入();
-    如果 (_頁面 == 空) { 回傳 ""; }
-    回傳 _頁面["host"];
+    變數 來源 = 網路.頁面來源();
+    如果 (來源 == "") { 回傳 ""; }
+    回傳 網路.解析網址(來源).主機;
 };
 # 網頁是否以 HTTPS 載入（此時應使用 wss://）。 / Whether the page was loaded over HTTPS.
-變數 頁面安全, PageIsSecure = 函式() {
-    載入();
-    如果 (_頁面 == 空) { 回傳 假; }
-    回傳 _頁面["secure"] == 真;
+變數 頁面安全, PageIsSecure = 函式() { 字串.開頭是(網路.頁面來源(), "https:"); };
+# 網頁：連回載入此網頁的伺服器的 ws:// 或 wss:// 網址；其他平台使用 預設主機（"127.0.0.1:8080"）。
+# Web: the ws:// or wss:// URL of the page's own server for `path`; elsewhere one on `fallbackHost`.
+變數 頁面網址, PageUrl = 函式(路徑, 預設主機) {
+    變數 來源 = 網路.頁面來源();
+    如果 (來源 == "") { 回傳 "ws://" + 預設主機 + 路徑; }
+    回傳 "ws" + 字串.切片(來源, 4, 長度(來源)) + 路徑;
 };
 
-# 內部：給實例模組使用的核心操作。 / Internal core operations shared with instance modules.
-變數 _核心呼叫 = 函式(名稱, 請求) {
-    載入();
-    請求["ctx"] = _情境;
-    回傳 _呼叫(名稱, 請求);
-};
 變數 _註冊 = 函式(編號, 物件) {
     如果 (_物件表[編號] == 空) { 陣列.追加(_物件編號, 編號); }
     _物件表[編號] = 物件;
@@ -88,6 +74,7 @@ Every public function has a Traditional Chinese and an English name bound to the
     變數 位置 = 陣列.尋找(_物件編號, 編號);
     如果 (位置 >= 0) { 陣列.刪除(_物件編號, 位置, 位置 + 1); }
 };
+變數 _新編號 = 函式() { 變數 編號 = _下個編號; _下個編號++; 回傳 編號; };
 
 變數 _中文類型 = 函式(類型) {
     如果 (類型 == "open") { 回傳 "開啟"; }
@@ -98,7 +85,7 @@ Every public function has a Traditional Chinese and an English name bound to the
     回傳 類型;
 };
 
-# 原生事件轉成雙語事件雜湊表。 / Convert an engine event to a bilingual event hash.
+# 引擎事件轉成雙語事件雜湊表。 / Convert an engine event to a bilingual event hash.
 變數 雙語事件, BilingualEvent = 函式(原始) {
     回傳 {
         "type": 原始["type"], "類型": _中文類型(原始["type"]),
@@ -117,85 +104,115 @@ Every public function has a Traditional Chinese and an English name bound to the
     };
 };
 
-# 輪詢一次並把事件分派給伺服器與用戶端物件；回傳處理的事件數。
-# Poll once and dispatch events to their server/client objects; returns the event count.
-變數 輪詢全部, PollAll = 函式(逾時毫秒) {
-    如果 (_函式庫 == 空) { 回傳 0; }
-    變數 結果 = _呼叫("aqws_poll", {"ctx": _情境, "timeout": 逾時毫秒});
-    變數 事件們 = 結果["events"];
-    如果 (事件們 == 空) { 回傳 0; }
-    迴圈 (變數 索引 = 0; 索引 < 長度(事件們); 索引++) {
-        變數 事件 = 雙語事件(事件們[索引]);
-        變數 擁有者 = 空;
-        如果 (事件["server"] != 0) { 擁有者 = _物件表[事件["server"]]; }
-        否則 { 擁有者 = _物件表[事件["conn"]]; }
-        如果 (擁有者 != 空) { 擁有者.內部接收事件(事件); }
+變數 _擁有者 = 函式(事件) {
+    如果 (事件["server"] != 0) { 回傳 _物件表[事件["server"]]; }
+    回傳 _物件表[事件["conn"]];
+};
+
+# 收到的事件：立即分派給非同步模式的物件，否則排隊等輪詢。
+# An arriving event: dispatched at once to an object in async mode, else queued for polling.
+變數 _推入 = 函式(原始) {
+    變數 擁有者 = _擁有者(原始);
+    如果 (擁有者 != 空) {
+        如果 (擁有者.內部立即()) { 擁有者.內部接收事件(雙語事件(原始)); 回傳 真; }
     }
-    # 讓每個物件處理計時工作（例如自動重新連線）。 / Let objects run timers (e.g. reconnects).
-    變數 快照 = 陣列.克隆(_物件編號);
-    迴圈 (變數 索引 = 0; 索引 < 長度(快照); 索引++) {
-        變數 物件 = _物件表[快照[索引]];
-        如果 (物件 != 空) { 物件.內部計時(); }
+    如果 (長度(_事件) < 100000) { 陣列.追加(_事件, 原始); }
+    回傳 真;
+};
+
+# 輪詢：等到有事件或逾時，再把事件分派給伺服器與用戶端物件；回傳處理的事件數。等待時網路工作照常進行。
+# Wait until events arrive or the timeout passes, then dispatch them to their server/client objects; returns the
+# event count. Network work goes on while it waits.
+變數 輪詢全部, PollAll = 函式(逾時毫秒) {
+    變數 期限 = 目前時間() + 逾時毫秒;
+    執行緒.休眠(0);
+    迴圈 (; 長度(_事件) == 0 && 目前時間() < 期限;) { 執行緒.休眠(1); }
+    變數 事件們 = _事件;
+    _事件 = [];
+    迴圈 (變數 索引 = 0; 索引 < 長度(事件們); 索引++) {
+        變數 擁有者 = _擁有者(事件們[索引]);
+        如果 (擁有者 != 空) { 擁有者.內部接收事件(雙語事件(事件們[索引])); }
     }
     回傳 長度(事件們);
 };
 
 變數 _核心 = {
-    "呼叫": _核心呼叫,
+    "網路": 網路,
+    "推入": _推入,
     "註冊": _註冊,
     "取消註冊": _取消註冊,
+    "新編號": _新編號,
     "輪詢全部": 輪詢全部,
     "選項值": 選項值
 };
 
-# 建立 WebSocket 伺服器（桌面）。選項：連接埠/port、主機/host、路徑/path、來源/origins、
-# 子協定/protocols、訊息上限/maxMessage、連線上限/maxConnections、心跳間隔/pingInterval。
-# Create a WebSocket server (desktop). See README for every option.
+# 建立 WebSocket 伺服器（桌面、Android）。選項：連接埠/port、主機/host、路徑/path、來源/origins、
+# 子協定/protocols、訊息上限/maxMessage、連線上限/maxConnections、憑證/certificate、憑證密碼/certificatePassword。
+# Create a WebSocket server (desktop, Android); with a certificate it serves wss://. See README for every option.
 變數 建立伺服器, CreateServer = 函式(選項) {
-    載入();
     變數 伺服器 = 匯入("src/server.aqua");
     伺服器.設定自身(伺服器);
-    伺服器.內部初始化(_核心, 選項);
+    伺服器.內部初始化(_核心, 選項, 空);
     回傳 伺服器;
 };
 
-# 解析主機名稱（原生平台）；網頁由瀏覽器處理。 / Resolve host names on native platforms.
-變數 _解析 = 函式(主機) {
-    如果 (_網路 == 空) { _網路 = 匯入("網路"); }
-    變數 位址們 = _網路.解析主機(主機);
-    變數 選擇 = 空;
-    迴圈 (變數 索引 = 0; 索引 < 長度(位址們); 索引++) {
-        # 優先選擇 IPv4。 / Prefer IPv4 addresses.
-        如果 (選擇 == 空 && !字串.包含(位址們[索引], ":")) { 選擇 = 位址們[索引]; }
-    }
-    如果 (選擇 == 空 && 長度(位址們) > 0) { 選擇 = 位址們[0]; }
-    回傳 選擇;
+# 把 WebSocket 端點掛到既有的「網路」伺服器上，與 HTTP 路由共用連接埠：掛載(伺服器, "/ws", 選項)。
+# Mount a WebSocket endpoint on an existing Network server, sharing its port with HTTP routes.
+變數 掛載, Mount = 函式(網路伺服器, 路徑, 選項) {
+    變數 伺服器 = 匯入("src/server.aqua");
+    伺服器.設定自身(伺服器);
+    如果 (選項 == 空) { 選項 = {}; }
+    選項["path"] = 路徑;
+    伺服器.內部初始化(_核心, 選項, 網路伺服器);
+    回傳 伺服器;
 };
 
-# 連到 WebSocket 伺服器。 / Connect to a WebSocket server.
+# 連到 WebSocket 伺服器。選項：子協定/protocols、標頭/headers（瀏覽器不支援）、逾時/timeout、訊息上限/maxMessage、
+# 自動重連/autoReconnect、重連間隔/reconnectDelay、連線中佇列/queueWhileConnecting。
+# Connect to a WebSocket server; see README for the options.
 變數 連接並設定, ConnectWith = 函式(網址, 選項) {
-    載入();
     變數 用戶端 = 匯入("src/client.aqua");
     用戶端.設定自身(用戶端);
-    用戶端.內部初始化(_核心, 網址, 選項, _解析);
+    用戶端.內部初始化(_核心, 網址, 選項);
     回傳 用戶端;
 };
 變數 連接, Connect = 函式(網址) { 連接並設定(網址, {}); };
 
-變數 隨機整數, RandomInt = 函式() {
-    載入();
-    回傳 _呼叫("aqws_random", {"bytes": 4})["int"];
+# 連線並等待開啟：承諾完成時得到已開啟、會立即分派回呼的用戶端；連線失敗時拒絕。
+# Connect and wait until open: a promise of the open client (dispatching callbacks as events arrive); it rejects
+# when the connection fails.
+變數 連接非同步, ConnectAsync = 非同步 函式(網址, 選項) {
+    如果 (選項 == 空) { 選項 = {}; }
+    變數 用戶端 = 連接並設定(網址, 選項);
+    用戶端.非同步執行();
+    回傳 等待 用戶端.內部開啟承諾();
 };
+
+# 密碼學亂數（作業系統或瀏覽器）。 / Cryptographic randomness from the OS or the browser.
+變數 隨機整數, RandomInt = 函式() {
+    變數 位元組 = 網路.隨機位元組(4);
+    # 30 位元的正整數。 / A positive 30-bit integer.
+    回傳 (位元組[0] % 64) * 16777216 + 位元組[1] * 65536 + 位元組[2] * 256 + 位元組[3];
+};
+變數 _十六進位 = "0123456789abcdef";
 變數 隨機十六進位, RandomHex = 函式(位元組數) {
-    載入();
-    回傳 _呼叫("aqws_random", {"bytes": 位元組數})["hex"];
+    變數 位元組 = 網路.隨機位元組(位元組數);
+    變數 部分 = [];
+    迴圈 (變數 索引 = 0; 索引 < 長度(位元組); 索引++) {
+        陣列.追加(部分, 字串.切片(_十六進位, 位元組[索引] / 16, 位元組[索引] / 16 + 1));
+        陣列.追加(部分, 字串.切片(_十六進位, 位元組[索引] % 16, 位元組[索引] % 16 + 1));
+    }
+    回傳 字串.合併(部分, "");
 };
 
 變數 關閉全部, CloseAll = 函式() {
-    如果 (_函式庫 == 空) { 回傳 假; }
-    _呼叫("aqws_close_ctx", {"ctx": _情境});
-    _函式庫 = 空;
+    變數 快照 = 陣列.克隆(_物件編號);
+    迴圈 (變數 索引 = 0; 索引 < 長度(快照); 索引++) {
+        變數 物件 = _物件表[快照[索引]];
+        如果 (物件 != 空) { 物件.關閉(); }
+    }
     _物件表 = {};
     _物件編號 = [];
+    _事件 = [];
     回傳 真;
 };
