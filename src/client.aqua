@@ -65,8 +65,16 @@ reconnects, handing events to the core; messages sent while connecting are queue
 
 # 連線、接收、（選擇性）重新連線，直到使用者關閉。 / Connect, receive and (optionally) reconnect until closed.
 變數 _泵 = 非同步 函式() {
+    變數 第一次 = 真;
     迴圈 (; !_使用者關閉;) {
         _狀態 = "connecting";
+        # 每條連線有自己的編號（重新連線換新編號）。 / Each connection has its own id; a reconnect gets a new one.
+        如果 (!第一次) {
+            _核心["取消註冊"](_編號);
+            _編號 = _核心["新編號"]();
+            _核心["註冊"](_編號, _自身);
+        }
+        第一次 = 假;
         變數 結果 = 等待 _網路.非同步連接網頁通訊端(_網址, _連線選項()).然後(
             函式(通訊端) { 回傳 {"ok": 真, "socket": 通訊端}; },
             函式(原因) { 回傳 {"ok": 假, "reason": 原因}; });
@@ -215,3 +223,11 @@ reconnects, handing events to the core; messages sent while connecting are queue
     回傳 真;
 };
 變數 關閉, Close = 函式() { 關閉並說明(1000, ""); };
+# 測試用：像伺服器斷線一樣中斷目前連線（會依設定自動重連）。 / For tests: drop the connection as a server would
+# (auto-reconnect applies).
+變數 內部中斷 = 函式() {
+    如果 (_通訊端 == 空) { 回傳 假; }
+    變數 通訊端 = _通訊端;
+    _網路.嘗試(函式() { 通訊端.關閉(1001, "dropped"); });
+    回傳 真;
+};
